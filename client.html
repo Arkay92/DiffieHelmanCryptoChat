@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MetaMask Secure Channel Establishment</title>
+    <script src="https://cdn.jsdelivr.net/npm/web3/dist/web3.min.js"></script>
+    <script>
+        let serverPublicDHKey;  // Will store the server's public DH key
+        let sharedSecretKey;  // Will store the derived shared secret key
+
+        async function generateDHKeyPair() {
+            const dhParams = {
+                name: "ECDH",
+                namedCurve: "P-384"  // Example curve, adjust as necessary to match server's configuration
+            };
+
+            return await window.crypto.subtle.generateKey(dhParams, true, ["deriveKey"]);
+        }
+
+        async function importServerPublicKey(hexString) {
+            const serverPublicKeyBuffer = hexStringToArrayBuffer(hexString);
+
+            return await window.crypto.subtle.importKey(
+                "raw",
+                serverPublicKeyBuffer,
+                { name: "ECDH", namedCurve: "P-384" },
+                true,
+                []
+            );
+        }
+
+        async function deriveSharedSecret(clientPrivateKey, serverPublicKey) {
+            return await window.crypto.subtle.deriveKey(
+                { name: "ECDH", public: serverPublicKey },
+                clientPrivateKey,
+                { name: "AES-GCM", length: 256 },
+                true,
+                ["encrypt", "decrypt"]
+            );
+        }
+
+        function hexStringToArrayBuffer(hexString) {
+            const result = new Uint8Array(hexString.length / 2);
+            for (let i = 0; i < hexString.length; i += 2) {
+                result[i / 2] = parseInt(hexString.substring(i, i + 2), 16);
+            }
+            return result.buffer;
+        }
+
+        async function connectWallet() {
+            if (window.ethereum) {
+                try {
+                    await window.ethereum.request({ method: "eth_requestAccounts" });
+                    window.web3 = new Web3(window.ethereum);
+                    alert("Connected to MetaMask!");
+                } catch (error) {
+                    console.error("Error connecting to MetaMask:", error);
+                    alert("Error connecting to MetaMask. Please check your MetaMask extension.");
+                }
+            } else {
+                console.log("No wallet");
+                alert("No wallet detected. Please install MetaMask.");
+            }
+        }
+
+        async function connectWalletAndSignMessage() {
+            const sender_address = document.getElementById('senderAddress').value;
+            const recipient_address = document.getElementById('recipientAddress').value;
+            const message = document.getElementById('message').value;
+            
+            if (!sender_address || !recipient_address || !message) {
+                alert('Please fill in all fields.');
+                return;
+            }
+
+            if (!web3.utils.isAddress(sender_address)) {
+                alert('Invalid sender address.');
+                return;
+            }
+
+            if (!web3.utils.isAddress(recipient_address)) {
+                alert('Invalid recipient address.');
+                return;
+            }
+
+            if (typeof window.ethereum === 'undefined') {
+                alert('MetaMask is not installed. Please consider installing it.');
+                return;
+            }
+
+            try {
+                const web3 = new Web3(window.ethereum);
+                const signature = await web3.eth.personal.sign(web3.utils.utf8ToHex(message), sender_address);
+
+                fetch('/establish_secure_channel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message, signature, sender_address, recipient_address }),
+                })
+                .then(response => response.json())
+                .then(async data => {
+                    if (data.serverPublicDHKey) {
+                        serverPublicDHKey = data.serverPublicDHKey;
+
+                        const dhKeyPair = await generateDHKeyPair();
+                        const serverPublicKey = await importServerPublicKey(serverPublicDHKey);
+
+                        sharedSecretKey = await deriveSharedSecret(dhKeyPair.privateKey, serverPublicKey);
+
+                        console.log('Secure channel established. Shared secret key derived.');
+                        document.getElementById('serverPublicDHKey').textContent = `Server Public DH Key: ${serverPublicDHKey}`;
+                    } else {
+                        console.error('Failed to establish a secure channel:', data.error);
+                        alert('Failed to establish a secure channel. Please try again.');
+                    }
+                })
+                .catch((error) => {
+                    console.error('Error:', error);
+                    alert('Error establishing secure channel. Please try again.');
+                });
+            } catch (error) {
+                console.error('Error connecting to MetaMask:', error);
+                alert('Error connecting to MetaMask. Please check your MetaMask extension.');
+            }
+        }
+    </script>
+</head>
+<body>
+    <h1>Connect to MetaMask & Establish a Secure Channel</h1>
+    <button onclick="connectWallet()">Connect to MetaMask</button><br><br>
+    <label for="senderAddress">Sender Address:</label>
+    <input type="text" id="senderAddress" name="senderAddress" readonly><br><br>
+    <label for="recipientAddress">Recipient Address:</label>
+    <input type="text" id="recipientAddress" name="recipientAddress"><br><br>
+    <label for="message">Message:</label>
+    <input type="text" id="message" name="message"><br><br>
+    <button onclick="connectWalletAndSignMessage()">Connect & Sign</button>
+    <div id="serverPublicDHKey"></div>
+</body>
+</html>
