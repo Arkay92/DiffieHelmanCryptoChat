@@ -22,7 +22,7 @@ This project demonstrates how to establish a secure communication channel betwee
 
 1. Clone the repository:
 ```
-git clone https://your-repository-url.git
+git clone https://github.com/Arkay92/DiffieHelmanCryptoChat.git
 ```
 
 2. Install Python dependencies:
